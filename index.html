@@ -719,52 +719,81 @@ function closeModal() {
 document.getElementById('justification-modal').addEventListener('click', e => { if (e.target === e.currentTarget) closeModal(); });
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
 
-// ── VENDEDORES por time ──────────────────────────────────────────────────────
-const TIMES = {
-    'Jonathan Dornelas': [
-        'Antonio Gonçalves','Bruno Matoso','Caio Teixeira',
-        'Charles Silva',"Emelin Sant'Ana",'Leandro Oliveira',
-        'Matheus Rodrigues','Yuri Nonno'
-    ],
-    'Simone Rangel': [
-        'Eduardo Santos','Ícaro Nunes','Letícia Macedo',
-        'Lucas Cardoso','Pablo Rodrigues','Taffarel Ferreira','Will Melo'
-    ]
-};
-const TODOS_VENDEDORES = [...TIMES['Jonathan Dornelas'], ...TIMES['Simone Rangel']].sort();
+// ── Vendedores carregados da API (sem dados no frontend) ─────────────────────
+let VENDORS_CACHE = [];   // preenchido por loadVendorsCache()
+
+async function loadVendorsCache() {
+    try {
+        const res = await fetch('/api/vendors');
+        VENDORS_CACHE = await res.json();
+    } catch { VENDORS_CACHE = []; }
+}
+
+async function populateEuSelect() {
+    const sel = document.getElementById('dash-filter-eu');
+    if (!sel) return;
+    sel.innerHTML = '<option value="">— selecione seu nome —</option>';
+    if (!VENDORS_CACHE.length) await loadVendorsCache();
+    const byCoord = {};
+    VENDORS_CACHE.forEach(v => {
+        if (!byCoord[v.coordenador]) byCoord[v.coordenador] = [];
+        byCoord[v.coordenador].push(v);
+    });
+    Object.entries(byCoord).forEach(([coord, vends]) => {
+        const g = document.createElement('optgroup');
+        g.label = 'Time ' + coord;
+        vends.forEach(v => {
+            const o = document.createElement('option');
+            o.value = v.nome; o.textContent = v.nome;
+            g.appendChild(o);
+        });
+        sel.appendChild(g);
+    });
+}
+
 
 let dashMode = 'gestor';
 let dashChartEvolucao = null;
 
 function setDashMode(mode) {
     dashMode = mode;
-    document.getElementById('dash-mode-gestor').className =
-        mode === 'gestor'
-        ? 'flex-1 py-2.5 rounded-2xl text-[11px] font-black uppercase tracking-widest transition-all bg-[#002d72] text-white shadow-md'
-        : 'flex-1 py-2.5 rounded-2xl text-[11px] font-black uppercase tracking-widest transition-all bg-slate-200 text-slate-500';
-    document.getElementById('dash-mode-vendedor').className =
-        mode === 'vendedor'
-        ? 'flex-1 py-2.5 rounded-2xl text-[11px] font-black uppercase tracking-widest transition-all bg-violet-600 text-white shadow-md'
-        : 'flex-1 py-2.5 rounded-2xl text-[11px] font-black uppercase tracking-widest transition-all bg-slate-200 text-slate-500';
+    const btns = {
+        gestor:  { id: 'dash-mode-gestor',  active: 'bg-[#002d72] text-white shadow-md',    inactive: 'bg-slate-200 text-slate-500' },
+        vendedor:{ id: 'dash-mode-vendedor', active: 'bg-violet-600 text-white shadow-md',   inactive: 'bg-slate-200 text-slate-500' },
+        gestao:  { id: 'dash-mode-gestao',   active: 'bg-emerald-600 text-white shadow-md',  inactive: 'bg-slate-200 text-slate-500' }
+    };
+    Object.entries(btns).forEach(([k,b]) => {
+        const el = document.getElementById(b.id);
+        if (!el) return;
+        el.className = 'flex-1 py-2.5 rounded-2xl text-[11px] font-black uppercase tracking-widest transition-all ' + (k === mode ? b.active : b.inactive);
+    });
     document.getElementById('dash-filters-gestor').classList.toggle('hidden', mode !== 'gestor');
     document.getElementById('dash-filters-vendedor').classList.toggle('hidden', mode !== 'vendedor');
-    document.getElementById('dash-content').innerHTML = `<div class="flex flex-col items-center py-20 text-slate-300"><i data-lucide="bar-chart-2" class="w-12 h-12 mb-3"></i><p class="font-bold text-sm">Selecione os filtros acima.</p></div>`;
+    document.getElementById('dash-content').innerHTML = '<div class="flex flex-col items-center py-20 text-slate-300"><i data-lucide="bar-chart-2" class="w-12 h-12 mb-3"></i><p class="font-bold text-sm">Selecione os filtros acima.</p></div>';
     lucide.createIcons();
     if (mode === 'gestor') loadDashboard();
+    if (mode === 'gestao') loadGestaoPanel();
+    if (mode === 'vendedor') populateEuSelect();
 }
 
-function onCoordChange() {
+async function onCoordChange() {
     const coord = document.getElementById('dash-filter-coord').value;
-    const sel = document.getElementById('dash-filter-vendedor');
+    const sel   = document.getElementById('dash-filter-vendedor');
     sel.innerHTML = '<option value="todos">Todos</option>';
-    const lista = coord === 'todos' ? TODOS_VENDEDORES : (TIMES[coord] || []);
-    lista.forEach(v => { const o = document.createElement('option'); o.value = v; o.textContent = v; sel.appendChild(o); });
+    if (!VENDORS_CACHE.length) await loadVendorsCache();
+    const filtrados = coord === 'todos' ? VENDORS_CACHE : VENDORS_CACHE.filter(v => v.coordenador === coord);
+    filtrados.forEach(v => {
+        const o = document.createElement('option');
+        o.value = v.nome; o.textContent = v.nome;
+        sel.appendChild(o);
+    });
     loadDashboard();
 }
 
-function showDashboard() {
+async function showDashboard() {
     document.getElementById('dashboard-modal').classList.remove('hidden');
     lucide.createIcons();
+    await loadVendorsCache();
     loadDashboard();
 }
 
@@ -879,6 +908,242 @@ function renderVendedorDash(nome, obj) {
 
 // ── Dashboard Gestor ──────────────────────────────────────────────────────────
 
+// ── Gestão de Vendedores ──────────────────────────────────────────────────────
+let todosVendedores = [];
+
+async function loadGestaoPanel() {
+    const content = document.getElementById('dash-content');
+    content.innerHTML = '<div class="flex flex-col items-center py-16 text-slate-300"><div class="loader mb-4"></div><p class="font-bold text-xs uppercase tracking-widest animate-pulse">Carregando painel de gestão...</p></div>';
+    try {
+        const [vendRes, reunRes] = await Promise.all([
+            fetch('/api/vendors?incluir_inativos=1'),
+            fetch('/api/dashboard?coordenador=todos&periodo=todos&vendedor=todos')
+        ]);
+        const vendedores  = await vendRes.json();
+        const { reunioes } = await reunRes.json();
+        todosVendedores = vendedores;
+        renderGestaoPanel(vendedores, reunioes || []);
+    } catch(err) {
+        content.innerHTML = '<div class="text-center py-20 text-red-400 font-bold">' + err.message + '</div>';
+    }
+}
+
+function renderGestaoPanel(vendedores, reunioes) {
+    const content = document.getElementById('dash-content');
+    const ativos   = vendedores.filter(v => v.ativo);
+    const inativos = vendedores.filter(v => !v.ativo);
+
+    // Group by coordenador
+    const byCoord = {};
+    ativos.forEach(v => {
+        if (!byCoord[v.coordenador]) byCoord[v.coordenador] = [];
+        byCoord[v.coordenador].push(v);
+    });
+
+    const vendorRows = Object.entries(byCoord).map(([coord, lista]) => {
+        const color = coord.includes('Simone') ? 'border-blue-500 bg-blue-50' : 'border-violet-500 bg-violet-50';
+        const badge = coord.includes('Simone') ? 'bg-blue-100 text-blue-700' : 'bg-violet-100 text-violet-700';
+        const rows = lista.map(v => {
+            const count = reunioes.filter(r => r.vendedor_nome && r.vendedor_nome.toLowerCase().includes(v.nome.split(' ')[0].toLowerCase())).length;
+            return '<div class="flex items-center justify-between p-3 bg-white rounded-xl border border-slate-100 hover:shadow-sm transition-all">' +
+                '<div class="flex items-center gap-3">' +
+                    '<div class="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center font-black text-slate-500 text-sm">' + v.nome.charAt(0) + '</div>' +
+                    '<div><p class="font-bold text-sm text-slate-800">' + v.nome + '</p>' +
+                    '<p class="text-[10px] text-slate-400">' + count + ' análise(s)</p></div>' +
+                '</div>' +
+                '<button onclick="confirmarDemissao('' + v.id + '','' + v.nome.replace(/'/g, "\'") + '')" ' +
+                    'class="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 hover:bg-red-600 text-red-500 hover:text-white border border-red-200 hover:border-red-600 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all">' +
+                    '<i data-lucide="user-minus" class="w-3 h-3"></i> Demitir' +
+                '</button>' +
+            '</div>';
+        }).join('');
+        return '<div class="glass-card p-6 border-t-4 ' + color + '">' +
+            '<p class="text-[10px] font-black uppercase tracking-widest mb-4 ' + badge.replace('bg-','text-').replace('text-','') + '">' +
+            '<span class="px-3 py-1 rounded-full ' + badge + '">' + coord + '</span></p>' +
+            '<div class="space-y-2">' + rows + '</div>' +
+        '</div>';
+    }).join('');
+
+    const inativosList = inativos.length > 0 ?
+        '<div class="glass-card p-6 border-t-4 border-slate-300 bg-slate-50">' +
+            '<p class="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-4">Vendedores Desativados (' + inativos.length + ')</p>' +
+            '<div class="space-y-2">' +
+            inativos.map(v =>
+                '<div class="flex items-center justify-between p-3 bg-white rounded-xl border border-slate-100 opacity-60">' +
+                    '<div class="flex items-center gap-3">' +
+                        '<div class="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center font-black text-slate-400 text-sm">' + v.nome.charAt(0) + '</div>' +
+                        '<div><p class="font-bold text-sm text-slate-500 line-through">' + v.nome + '</p>' +
+                        '<p class="text-[10px] text-slate-400">' + v.coordenador + '</p></div>' +
+                    '</div>' +
+                    '<button onclick="reativarVendedor('' + v.id + '','' + v.nome.replace(/'/g,"\'") + '','' + v.coordenador.replace(/'/g,"\'") + '')" ' +
+                        'class="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-600 text-emerald-600 hover:text-white border border-emerald-200 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all">' +
+                        '<i data-lucide="user-plus" class="w-3 h-3"></i> Reativar' +
+                    '</button>' +
+                '</div>'
+            ).join('') +
+            '</div></div>' : '';
+
+    // Last analyses with reassign option
+    const lastAnalises = reunioes.slice(0, 20).map(r => {
+        const vendOptions = ativos.map(v => '<option value="' + v.nome + '" ' + (v.nome === r.vendedor_nome ? 'selected' : '') + '>' + v.nome + '</option>').join('');
+        const sc = n => n >= 4 ? 'text-emerald-600' : n >= 3 ? 'text-blue-600' : 'text-red-500';
+        return '<div class="p-4 bg-white rounded-2xl border border-slate-100 flex items-center gap-4 hover:shadow-sm transition-all">' +
+            '<div class="flex-1 min-w-0">' +
+                '<div class="flex items-center gap-2 mb-1">' +
+                    '<p class="text-[10px] font-black text-slate-400">' + new Date(r.created_at).toLocaleDateString('pt-BR') + '</p>' +
+                    '<span class="text-[9px] px-2 py-0.5 bg-slate-100 rounded-full font-bold text-slate-500">' + (r.coordenador || '—') + '</span>' +
+                '</div>' +
+                '<p class="font-black text-sm text-slate-800 truncate">' + (r.vendedor_nome || 'Não identificado') + '</p>' +
+                '<p class="text-[10px] text-slate-400">' + (r.produto || '—') + '</p>' +
+            '</div>' +
+            '<div class="text-2xl font-black ' + sc(r.media_final) + ' flex-shrink-0">' + (r.media_final || '—') + '</div>' +
+            '<div class="flex items-center gap-2 flex-shrink-0">' +
+                '<select id="reassign-' + r.id + '" class="text-xs font-bold border border-slate-200 rounded-xl px-2 py-1.5 bg-slate-50 focus:outline-none focus:ring-2 ring-blue-300 max-w-[160px]">' +
+                    '<option value="">— Reatribuir para —</option>' + vendOptions +
+                '</select>' +
+                '<button onclick="reatribuirAnalise('' + r.id + '')" ' +
+                    'class="flex items-center gap-1 px-3 py-1.5 bg-blue-600 hover:bg-[#002d72] text-white rounded-xl text-[10px] font-black uppercase transition-all">' +
+                    '<i data-lucide="check" class="w-3 h-3"></i> OK' +
+                '</button>' +
+            '</div>' +
+        '</div>';
+    }).join('');
+
+    content.innerHTML =
+        // ── Cadastrar novo vendedor ──
+        '<div class="glass-card p-8 border-t-4 border-emerald-500">' +
+            '<h4 class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-6 flex items-center gap-2">' +
+                '<i data-lucide="user-plus" class="w-4 h-4 text-emerald-500"></i> Cadastrar Novo Vendedor' +
+            '</h4>' +
+            '<div class="flex flex-wrap gap-3 items-end">' +
+                '<div class="flex-1 min-w-[200px]">' +
+                    '<label class="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-1.5">Nome Completo</label>' +
+                    '<input id="novo-vend-nome" type="text" placeholder="Ex: João Silva" ' +
+                        'class="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 ring-blue-300" />' +
+                '</div>' +
+                '<div class="min-w-[200px]">' +
+                    '<label class="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-1.5">Time</label>' +
+                    '<select id="novo-vend-coord" class="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold bg-white focus:outline-none focus:ring-2 ring-blue-300">' +
+                        '<option value="">— Selecione —</option>' +
+                        '<option value="Simone Rangel">Simone Rangel</option>' +
+                        '<option value="Jonathan Dornelas">Jonathan Dornelas</option>' +
+                    '</select>' +
+                '</div>' +
+                '<button onclick="cadastrarVendedor()" ' +
+                    'class="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-2.5 rounded-xl font-black text-sm uppercase tracking-widest transition-all shadow-md active:scale-95">' +
+                    '<i data-lucide="plus" class="w-4 h-4"></i> Cadastrar' +
+                '</button>' +
+            '</div>' +
+            '<p id="novo-vend-msg" class="text-[11px] font-bold mt-3 hidden"></p>' +
+        '</div>' +
+
+        // ── Times ──
+        '<div class="grid grid-cols-1 md:grid-cols-2 gap-6">' + vendorRows + '</div>' +
+
+        // ── Inativos ──
+        inativosList +
+
+        // ── Reatribuição de análises ──
+        '<div class="glass-card p-8">' +
+            '<h4 class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-2">' +
+                '<i data-lucide="edit-3" class="w-4 h-4 text-blue-400"></i> Reatribuir Análises' +
+            '</h4>' +
+            '<p class="text-[11px] text-slate-400 mb-6">Corrija o vendedor identificado pela IA caso esteja errado.</p>' +
+            '<div class="space-y-3">' + (lastAnalises || '<p class="text-slate-300 text-sm font-bold text-center py-8">Sem análises ainda.</p>') + '</div>' +
+        '</div>';
+
+    lucide.createIcons();
+}
+
+async function cadastrarVendedor() {
+    const nome      = document.getElementById('novo-vend-nome').value.trim();
+    const coordenador = document.getElementById('novo-vend-coord').value;
+    const msg       = document.getElementById('novo-vend-msg');
+    if (!nome || !coordenador) {
+        msg.className = 'text-[11px] font-bold mt-3 text-red-500';
+        msg.textContent = '⚠️ Preencha nome e time.';
+        msg.classList.remove('hidden'); return;
+    }
+    try {
+        const res  = await fetch('/api/vendors', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ nome, coordenador })
+        });
+        const data = await res.json();
+        if (!data.ok) throw new Error(data.error);
+        msg.className = 'text-[11px] font-bold mt-3 text-emerald-600';
+        msg.textContent = (data.reativado ? '♻️ Vendedor reativado: ' : '✅ Vendedor cadastrado: ') + nome;
+        msg.classList.remove('hidden');
+        document.getElementById('novo-vend-nome').value = '';
+        document.getElementById('novo-vend-coord').value = '';
+        setTimeout(() => loadGestaoPanel(), 1000);
+    } catch(err) {
+        msg.className = 'text-[11px] font-bold mt-3 text-red-500';
+        msg.textContent = '❌ Erro: ' + err.message;
+        msg.classList.remove('hidden');
+    }
+}
+
+function confirmarDemissao(id, nome) {
+    if (!confirm('Desativar ' + nome + '?\n\nO histórico de análises será mantido, mas o vendedor não aparecerá mais nos filtros.')) return;
+    desativarVendedor(id, nome);
+}
+
+async function desativarVendedor(id, nome) {
+    try {
+        const res  = await fetch('/api/vendors', {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id })
+        });
+        const data = await res.json();
+        if (!data.ok) throw new Error(data.error);
+        loadGestaoPanel();
+    } catch(err) {
+        alert('Erro ao desativar: ' + err.message);
+    }
+}
+
+async function reativarVendedor(id, nome, coordenador) {
+    if (!confirm('Reativar ' + nome + '?')) return;
+    try {
+        const res  = await fetch('/api/vendors', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ nome, coordenador })
+        });
+        const data = await res.json();
+        if (!data.ok) throw new Error(data.error);
+        loadGestaoPanel();
+    } catch(err) {
+        alert('Erro ao reativar: ' + err.message);
+    }
+}
+
+async function reatribuirAnalise(reuniaoId) {
+    const sel  = document.getElementById('reassign-' + reuniaoId);
+    const nome = sel?.value;
+    if (!nome) { alert('Selecione o vendedor correto.'); return; }
+    try {
+        const res  = await fetch('/api/reassign', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ reuniao_id: reuniaoId, vendedor_nome: nome })
+        });
+        const data = await res.json();
+        if (!data.ok) throw new Error(data.error);
+        // Visual feedback
+        const btn = sel.nextElementSibling;
+        btn.textContent = '✅';
+        btn.className = 'px-3 py-1.5 bg-emerald-500 text-white rounded-xl text-[10px] font-black transition-all';
+        setTimeout(() => loadGestaoPanel(), 1500);
+    } catch(err) {
+        alert('Erro ao reatribuir: ' + err.message);
+    }
+}
+
+
 // ── Save analysis after render ─────────────────────────────────────────────────
 async function saveAnalysis(coordenador, analise) {
     try {
@@ -930,6 +1195,10 @@ analyzeBtn.addEventListener('click', handleAnalysis);
                         class="flex-1 py-2.5 rounded-2xl text-[11px] font-black uppercase tracking-widest transition-all bg-slate-200 text-slate-500">
                         <i data-lucide="user" class="w-3 h-3 inline mr-1"></i> Meu Desempenho
                     </button>
+                    <button onclick="setDashMode('gestao')" id="dash-mode-gestao"
+                        class="flex-1 py-2.5 rounded-2xl text-[11px] font-black uppercase tracking-widest transition-all bg-slate-200 text-slate-500">
+                        <i data-lucide="settings" class="w-3 h-3 inline mr-1"></i> Gestão
+                    </button>
                 </div>
 
                 <!-- Gestor filters -->
@@ -967,26 +1236,7 @@ analyzeBtn.addEventListener('click', handleAnalysis);
                     <div class="flex items-center gap-2">
                         <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Eu sou:</span>
                         <select id="dash-filter-eu" onchange="loadVendedorDash()" class="text-sm font-bold border border-slate-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 ring-blue-300">
-                            <option value="">— selecione seu nome —</option>
-                            <optgroup label="Time Jonathan Dornelas">
-                                <option>Antonio Gonçalves</option>
-                                <option>Bruno Matoso</option>
-                                <option>Caio Teixeira</option>
-                                <option>Charles Silva</option>
-                                <option>Emelin Sant'Ana</option>
-                                <option>Leandro Oliveira</option>
-                                <option>Matheus Rodrigues</option>
-                                <option>Yuri Nonno</option>
-                            </optgroup>
-                            <optgroup label="Time Simone Rangel">
-                                <option>Eduardo Santos</option>
-                                <option>Ícaro Nunes</option>
-                                <option>Letícia Macedo</option>
-                                <option>Lucas Cardoso</option>
-                                <option>Pablo Rodrigues</option>
-                                <option>Taffarel Ferreira</option>
-                                <option>Will Melo</option>
-                            </optgroup>
+                            <option value="">— carregando... —</option>
                         </select>
                     </div>
                     <div class="flex items-center gap-2">
