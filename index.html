@@ -933,16 +933,23 @@ function renderGestaoPanel(vendedores, reunioes) {
     const ativos   = vendedores.filter(v => v.ativo);
     const inativos = vendedores.filter(v => !v.ativo);
 
-    // Group by coordenador
+    // Store vendor map for event delegation
+    window._vendMap = {};
+    vendedores.forEach(v => { window._vendMap[v.id] = v; });
+
+    // Group actives by coord
     const byCoord = {};
     ativos.forEach(v => {
         if (!byCoord[v.coordenador]) byCoord[v.coordenador] = [];
         byCoord[v.coordenador].push(v);
     });
 
+    const sc = n => n >= 4 ? 'text-emerald-600' : n >= 3 ? 'text-blue-600' : 'text-red-500';
+
     const vendorRows = Object.entries(byCoord).map(([coord, lista]) => {
-        const color = coord.includes('Simone') ? 'border-blue-500 bg-blue-50' : 'border-violet-500 bg-violet-50';
-        const badge = coord.includes('Simone') ? 'bg-blue-100 text-blue-700' : 'bg-violet-100 text-violet-700';
+        const isSimone = coord.includes('Simone');
+        const border = isSimone ? 'border-blue-500' : 'border-violet-500';
+        const badge  = isSimone ? 'bg-blue-100 text-blue-700' : 'bg-violet-100 text-violet-700';
         const rows = lista.map(v => {
             const count = reunioes.filter(r => r.vendedor_nome && r.vendedor_nome.toLowerCase().includes(v.nome.split(' ')[0].toLowerCase())).length;
             return '<div class="flex items-center justify-between p-3 bg-white rounded-xl border border-slate-100 hover:shadow-sm transition-all">' +
@@ -951,15 +958,14 @@ function renderGestaoPanel(vendedores, reunioes) {
                     '<div><p class="font-bold text-sm text-slate-800">' + v.nome + '</p>' +
                     '<p class="text-[10px] text-slate-400">' + count + ' análise(s)</p></div>' +
                 '</div>' +
-                '<button onclick="confirmarDemissao('' + v.id + '','' + v.nome.replace(/'/g, "\'") + '')" ' +
+                '<button data-action="demitir" data-id="' + v.id + '" ' +
                     'class="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 hover:bg-red-600 text-red-500 hover:text-white border border-red-200 hover:border-red-600 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all">' +
                     '<i data-lucide="user-minus" class="w-3 h-3"></i> Demitir' +
                 '</button>' +
             '</div>';
         }).join('');
-        return '<div class="glass-card p-6 border-t-4 ' + color + '">' +
-            '<p class="text-[10px] font-black uppercase tracking-widest mb-4 ' + badge.replace('bg-','text-').replace('text-','') + '">' +
-            '<span class="px-3 py-1 rounded-full ' + badge + '">' + coord + '</span></p>' +
+        return '<div class="glass-card p-6 border-t-4 ' + border + '">' +
+            '<p class="text-[9px] font-black uppercase tracking-widest mb-4"><span class="px-3 py-1 rounded-full ' + badge + '">' + coord + '</span></p>' +
             '<div class="space-y-2">' + rows + '</div>' +
         '</div>';
     }).join('');
@@ -975,7 +981,7 @@ function renderGestaoPanel(vendedores, reunioes) {
                         '<div><p class="font-bold text-sm text-slate-500 line-through">' + v.nome + '</p>' +
                         '<p class="text-[10px] text-slate-400">' + v.coordenador + '</p></div>' +
                     '</div>' +
-                    '<button onclick="reativarVendedor('' + v.id + '','' + v.nome.replace(/'/g,"\'") + '','' + v.coordenador.replace(/'/g,"\'") + '')" ' +
+                    '<button data-action="reativar" data-id="' + v.id + '" ' +
                         'class="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-600 text-emerald-600 hover:text-white border border-emerald-200 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all">' +
                         '<i data-lucide="user-plus" class="w-3 h-3"></i> Reativar' +
                     '</button>' +
@@ -983,25 +989,24 @@ function renderGestaoPanel(vendedores, reunioes) {
             ).join('') +
             '</div></div>' : '';
 
-    // Last analyses with reassign option
+    const vendOptions = ativos.map(v => '<option value="' + v.nome + '">' + v.nome + '</option>').join('');
+
     const lastAnalises = reunioes.slice(0, 20).map(r => {
-        const vendOptions = ativos.map(v => '<option value="' + v.nome + '" ' + (v.nome === r.vendedor_nome ? 'selected' : '') + '>' + v.nome + '</option>').join('');
-        const sc = n => n >= 4 ? 'text-emerald-600' : n >= 3 ? 'text-blue-600' : 'text-red-500';
+        const opts = '<option value="">— Reatribuir para —</option>' +
+            ativos.map(v => '<option value="' + v.nome + '"' + (v.nome === r.vendedor_nome ? ' selected' : '') + '>' + v.nome + '</option>').join('');
         return '<div class="p-4 bg-white rounded-2xl border border-slate-100 flex items-center gap-4 hover:shadow-sm transition-all">' +
             '<div class="flex-1 min-w-0">' +
                 '<div class="flex items-center gap-2 mb-1">' +
                     '<p class="text-[10px] font-black text-slate-400">' + new Date(r.created_at).toLocaleDateString('pt-BR') + '</p>' +
-                    '<span class="text-[9px] px-2 py-0.5 bg-slate-100 rounded-full font-bold text-slate-500">' + (r.coordenador || '—') + '</span>' +
+                    '<span class="text-[9px] px-2 py-0.5 bg-slate-100 rounded-full font-bold text-slate-500">' + (r.coordenador || '') + '</span>' +
                 '</div>' +
                 '<p class="font-black text-sm text-slate-800 truncate">' + (r.vendedor_nome || 'Não identificado') + '</p>' +
-                '<p class="text-[10px] text-slate-400">' + (r.produto || '—') + '</p>' +
+                '<p class="text-[10px] text-slate-400">' + (r.produto || '') + '</p>' +
             '</div>' +
-            '<div class="text-2xl font-black ' + sc(r.media_final) + ' flex-shrink-0">' + (r.media_final || '—') + '</div>' +
+            '<div class="text-2xl font-black ' + sc(r.media_final) + ' flex-shrink-0">' + (r.media_final || '') + '</div>' +
             '<div class="flex items-center gap-2 flex-shrink-0">' +
-                '<select id="reassign-' + r.id + '" class="text-xs font-bold border border-slate-200 rounded-xl px-2 py-1.5 bg-slate-50 focus:outline-none focus:ring-2 ring-blue-300 max-w-[160px]">' +
-                    '<option value="">— Reatribuir para —</option>' + vendOptions +
-                '</select>' +
-                '<button onclick="reatribuirAnalise('' + r.id + '')" ' +
+                '<select id="reassign-' + r.id + '" class="text-xs font-bold border border-slate-200 rounded-xl px-2 py-1.5 bg-slate-50 focus:outline-none max-w-[160px]">' + opts + '</select>' +
+                '<button data-action="reassign" data-id="' + r.id + '" ' +
                     'class="flex items-center gap-1 px-3 py-1.5 bg-blue-600 hover:bg-[#002d72] text-white rounded-xl text-[10px] font-black uppercase transition-all">' +
                     '<i data-lucide="check" class="w-3 h-3"></i> OK' +
                 '</button>' +
@@ -1010,7 +1015,6 @@ function renderGestaoPanel(vendedores, reunioes) {
     }).join('');
 
     content.innerHTML =
-        // ── Cadastrar novo vendedor ──
         '<div class="glass-card p-8 border-t-4 border-emerald-500">' +
             '<h4 class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-6 flex items-center gap-2">' +
                 '<i data-lucide="user-plus" class="w-4 h-4 text-emerald-500"></i> Cadastrar Novo Vendedor' +
@@ -1018,8 +1022,7 @@ function renderGestaoPanel(vendedores, reunioes) {
             '<div class="flex flex-wrap gap-3 items-end">' +
                 '<div class="flex-1 min-w-[200px]">' +
                     '<label class="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-1.5">Nome Completo</label>' +
-                    '<input id="novo-vend-nome" type="text" placeholder="Ex: João Silva" ' +
-                        'class="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 ring-blue-300" />' +
+                    '<input id="novo-vend-nome" type="text" placeholder="Ex: João Silva" class="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 ring-blue-300" />' +
                 '</div>' +
                 '<div class="min-w-[200px]">' +
                     '<label class="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-1.5">Time</label>' +
@@ -1029,31 +1032,43 @@ function renderGestaoPanel(vendedores, reunioes) {
                         '<option value="Jonathan Dornelas">Jonathan Dornelas</option>' +
                     '</select>' +
                 '</div>' +
-                '<button onclick="cadastrarVendedor()" ' +
-                    'class="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-2.5 rounded-xl font-black text-sm uppercase tracking-widest transition-all shadow-md active:scale-95">' +
+                '<button onclick="cadastrarVendedor()" class="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-2.5 rounded-xl font-black text-sm uppercase tracking-widest transition-all shadow-md active:scale-95">' +
                     '<i data-lucide="plus" class="w-4 h-4"></i> Cadastrar' +
                 '</button>' +
             '</div>' +
             '<p id="novo-vend-msg" class="text-[11px] font-bold mt-3 hidden"></p>' +
         '</div>' +
-
-        // ── Times ──
         '<div class="grid grid-cols-1 md:grid-cols-2 gap-6">' + vendorRows + '</div>' +
-
-        // ── Inativos ──
         inativosList +
-
-        // ── Reatribuição de análises ──
         '<div class="glass-card p-8">' +
             '<h4 class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-2">' +
                 '<i data-lucide="edit-3" class="w-4 h-4 text-blue-400"></i> Reatribuir Análises' +
             '</h4>' +
             '<p class="text-[11px] text-slate-400 mb-6">Corrija o vendedor identificado pela IA caso esteja errado.</p>' +
-            '<div class="space-y-3">' + (lastAnalises || '<p class="text-slate-300 text-sm font-bold text-center py-8">Sem análises ainda.</p>') + '</div>' +
+            '<div class="space-y-3" id="analises-list">' + (lastAnalises || '<p class="text-slate-300 text-sm text-center py-8">Sem análises ainda.</p>') + '</div>' +
         '</div>';
 
+    // Event delegation — no inline onclick with data
+    content.addEventListener('click', gestaoClickHandler);
     lucide.createIcons();
 }
+
+function gestaoClickHandler(e) {
+    const btn = e.target.closest('[data-action]');
+    if (!btn) return;
+    const action = btn.dataset.action;
+    const id     = btn.dataset.id;
+    if (action === 'demitir') {
+        const v = window._vendMap[id];
+        if (v) confirmarDemissao(v.id, v.nome);
+    } else if (action === 'reativar') {
+        const v = window._vendMap[id];
+        if (v) reativarVendedor(v.id, v.nome, v.coordenador);
+    } else if (action === 'reassign') {
+        reatribuirAnalise(id);
+    }
+}
+
 
 async function cadastrarVendedor() {
     const nome      = document.getElementById('novo-vend-nome').value.trim();
