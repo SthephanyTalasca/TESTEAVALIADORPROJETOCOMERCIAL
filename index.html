@@ -719,9 +719,48 @@ function closeModal() {
 document.getElementById('justification-modal').addEventListener('click', e => { if (e.target === e.currentTarget) closeModal(); });
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
 
-// ── Dashboard ─────────────────────────────────────────────────────────────────
+// ── VENDEDORES por time ──────────────────────────────────────────────────────
+const TIMES = {
+    'Jonathan Dornelas': [
+        'Antonio Gonçalves','Bruno Matoso','Caio Teixeira',
+        'Charles Silva',"Emelin Sant'Ana",'Leandro Oliveira',
+        'Matheus Rodrigues','Yuri Nonno'
+    ],
+    'Simone Rangel': [
+        'Eduardo Santos','Ícaro Nunes','Letícia Macedo',
+        'Lucas Cardoso','Pablo Rodrigues','Taffarel Ferreira','Will Melo'
+    ]
+};
+const TODOS_VENDEDORES = [...TIMES['Jonathan Dornelas'], ...TIMES['Simone Rangel']].sort();
+
+let dashMode = 'gestor';
 let dashChartEvolucao = null;
-let dashChartVeredictos = null;
+
+function setDashMode(mode) {
+    dashMode = mode;
+    document.getElementById('dash-mode-gestor').className =
+        mode === 'gestor'
+        ? 'flex-1 py-2.5 rounded-2xl text-[11px] font-black uppercase tracking-widest transition-all bg-[#002d72] text-white shadow-md'
+        : 'flex-1 py-2.5 rounded-2xl text-[11px] font-black uppercase tracking-widest transition-all bg-slate-200 text-slate-500';
+    document.getElementById('dash-mode-vendedor').className =
+        mode === 'vendedor'
+        ? 'flex-1 py-2.5 rounded-2xl text-[11px] font-black uppercase tracking-widest transition-all bg-violet-600 text-white shadow-md'
+        : 'flex-1 py-2.5 rounded-2xl text-[11px] font-black uppercase tracking-widest transition-all bg-slate-200 text-slate-500';
+    document.getElementById('dash-filters-gestor').classList.toggle('hidden', mode !== 'gestor');
+    document.getElementById('dash-filters-vendedor').classList.toggle('hidden', mode !== 'vendedor');
+    document.getElementById('dash-content').innerHTML = `<div class="flex flex-col items-center py-20 text-slate-300"><i data-lucide="bar-chart-2" class="w-12 h-12 mb-3"></i><p class="font-bold text-sm">Selecione os filtros acima.</p></div>`;
+    lucide.createIcons();
+    if (mode === 'gestor') loadDashboard();
+}
+
+function onCoordChange() {
+    const coord = document.getElementById('dash-filter-coord').value;
+    const sel = document.getElementById('dash-filter-vendedor');
+    sel.innerHTML = '<option value="todos">Todos</option>';
+    const lista = coord === 'todos' ? TODOS_VENDEDORES : (TIMES[coord] || []);
+    lista.forEach(v => { const o = document.createElement('option'); o.value = v; o.textContent = v; sel.appendChild(o); });
+    loadDashboard();
+}
 
 function showDashboard() {
     document.getElementById('dashboard-modal').classList.remove('hidden');
@@ -734,178 +773,111 @@ function closeDashboard() {
 }
 
 async function loadDashboard() {
-    const coord   = document.getElementById('dash-filter-coord').value;
-    const periodo = document.getElementById('dash-filter-periodo').value;
-    const loading = document.getElementById('dash-loading');
-    const content = document.getElementById('dash-content');
-
+    const coord    = document.getElementById('dash-filter-coord').value;
+    const vendedor = document.getElementById('dash-filter-vendedor')?.value || 'todos';
+    const periodo  = document.getElementById('dash-filter-periodo').value;
+    const loading  = document.getElementById('dash-loading');
+    const content  = document.getElementById('dash-content');
     loading.classList.remove('hidden');
-
     try {
-        const res  = await fetch(`/api/dashboard?coordenador=${encodeURIComponent(coord)}&periodo=${periodo}`);
+        const qs = 'coordenador=' + encodeURIComponent(coord) + '&periodo=' + periodo + '&vendedor=' + encodeURIComponent(vendedor);
+        const res  = await fetch('/api/dashboard?' + qs);
         const data = await res.json();
         if (data.error) throw new Error(data.error);
         renderDashboardData(data);
     } catch(err) {
-        content.innerHTML = `<div class="text-center py-20 text-red-400 font-bold">${err.message}</div>`;
+        content.innerHTML = '<div class="text-center py-20 text-red-400 font-bold">' + err.message + '</div>';
     } finally {
         loading.classList.add('hidden');
     }
 }
 
-function renderDashboardData({ reunioes, stats }) {
+async function loadVendedorDash() {
+    const nome    = document.getElementById('dash-filter-eu').value;
+    const periodo = document.getElementById('dash-filter-periodo-vend').value;
     const content = document.getElementById('dash-content');
-
-    if (!stats || reunioes.length === 0) {
-        content.innerHTML = `
-            <div class="flex flex-col items-center py-20 text-slate-300">
-                <i data-lucide="inbox" class="w-12 h-12 mb-3"></i>
-                <p class="font-bold text-sm">Nenhuma análise encontrada para este período.</p>
-                <p class="text-xs mt-1">Faça análises e elas aparecerão aqui.</p>
-            </div>`;
-        lucide.createIcons();
-        return;
-    }
-
-    const scoreColor = n => n >= 4 ? 'text-emerald-600' : n >= 3 ? 'text-blue-600' : 'text-red-500';
-    const scoreBg    = n => n >= 4 ? 'bg-emerald-50 border-emerald-200' : n >= 3 ? 'bg-blue-50 border-blue-200' : 'bg-red-50 border-red-200';
-
-    // ── KPIs ──────────────────────────────────────────────────────────────────
-    const kpis = `
-    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div class="glass-card p-6 text-center border-b-4 border-blue-600">
-            <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2">Total de Reuniões</p>
-            <p class="text-4xl font-black text-blue-700">${stats.total}</p>
-        </div>
-        <div class="glass-card p-6 text-center border-b-4 border-emerald-500">
-            <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2">Média Geral</p>
-            <p class="text-4xl font-black ${scoreColor(stats.media_geral)}">${stats.media_geral}</p>
-            <p class="text-[9px] text-slate-400 font-bold">/ 5.0</p>
-        </div>
-        <div class="glass-card p-6 text-center border-b-4 border-violet-500">
-            <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2">Leads Qualificados</p>
-            <p class="text-4xl font-black text-violet-600">${stats.veredictos.QUALIFICADO}</p>
-            <p class="text-[9px] text-slate-400 font-bold">${Math.round(stats.veredictos.QUALIFICADO/stats.total*100)}% do total</p>
-        </div>
-        <div class="glass-card p-6 text-center border-b-4 border-red-400">
-            <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2">Fora do Portfólio</p>
-            <p class="text-4xl font-black text-red-500">${stats.veredictos.FORA}</p>
-            <p class="text-[9px] text-slate-400 font-bold">reuniões perdidas</p>
-        </div>
-    </div>`;
-
-    // ── Por coordenador ───────────────────────────────────────────────────────
-    const coordCards = Object.entries(stats.porCoordenador).map(([nome, c]) => `
-        <div class="glass-card p-8 border-t-4 ${nome.includes('Simone') ? 'border-blue-500' : 'border-violet-500'}">
-            <div class="flex items-center gap-3 mb-6">
-                <div class="w-10 h-10 rounded-full ${nome.includes('Simone') ? 'bg-blue-100' : 'bg-violet-100'} flex items-center justify-center">
-                    <i data-lucide="user-circle" class="w-5 h-5 ${nome.includes('Simone') ? 'text-blue-600' : 'text-violet-600'}"></i>
-                </div>
-                <div>
-                    <p class="font-black text-sm text-slate-800">${nome}</p>
-                    <p class="text-[10px] text-slate-400 font-bold">${c.total} reuniões analisadas</p>
-                </div>
-            </div>
-            <div class="grid grid-cols-3 gap-3">
-                <div class="text-center p-3 bg-slate-50 rounded-2xl">
-                    <p class="text-[8px] font-black text-slate-400 uppercase mb-1">Média Vendas</p>
-                    <p class="text-2xl font-black ${scoreColor(c.media_vendas)}">${c.media_vendas || '—'}</p>
-                </div>
-                <div class="text-center p-3 bg-slate-50 rounded-2xl">
-                    <p class="text-[8px] font-black text-slate-400 uppercase mb-1">Nota SDR</p>
-                    <p class="text-2xl font-black ${scoreColor(c.media_sdr/2)}">${c.media_sdr || '—'}</p>
-                </div>
-                <div class="text-center p-3 bg-red-50 rounded-2xl">
-                    <p class="text-[8px] font-black text-red-400 uppercase mb-1">Mal Qualif.</p>
-                    <p class="text-2xl font-black text-red-500">${c.mal_qualificados}</p>
-                </div>
-            </div>
-        </div>`).join('');
-
-    // ── Ranking vendedores ────────────────────────────────────────────────────
-    const ranking = stats.ranking.map((v, i) => `
-        <div class="flex items-center gap-4 p-4 rounded-2xl border ${scoreBg(v.media)} hover:shadow-sm transition-all">
-            <div class="w-8 h-8 rounded-full bg-white border-2 ${v.media >= 4 ? 'border-emerald-300' : v.media >= 3 ? 'border-blue-300' : 'border-red-300'} flex items-center justify-center font-black text-sm text-slate-600">${i+1}</div>
-            <div class="flex-1">
-                <p class="font-black text-sm text-slate-800">${v.nome}</p>
-                <p class="text-[10px] text-slate-400 font-bold">${v.coordenador} · ${v.total} reuniões</p>
-            </div>
-            <div class="grid grid-cols-5 gap-2 text-center hidden md:grid">
-                ${['Rapport','Produto','Apres.','Pré-F.','Fecha.'].map((l,idx) => {
-                    const vals = [v.avg_rapport, v.avg_produto, v.avg_apresentacao, v.avg_pre_fechamento, v.avg_fechamento];
-                    const sc = vals[idx];
-                    return `<div class="text-center"><p class="text-[8px] text-slate-400 font-bold">${l}</p><p class="font-black text-xs ${scoreColor(sc)}">${sc||'—'}</p></div>`;
-                }).join('')}
-            </div>
-            <div class="text-3xl font-black ${scoreColor(v.media)} min-w-[50px] text-right">${v.media}</div>
-        </div>`).join('');
-
-    // ── Veredictos SDR ────────────────────────────────────────────────────────
-    const vColors = { QUALIFICADO: 'bg-emerald-500', PARCIALMENTE: 'bg-yellow-400', MAL: 'bg-red-500', FORA: 'bg-purple-500', SEM: 'bg-slate-300' };
-    const vLabels = { QUALIFICADO: 'Qualificado', PARCIALMENTE: 'Parcial', MAL: 'Mal Qualif.', FORA: 'Fora Portf.', SEM: 'Sem dados' };
-    const veredictosBars = Object.entries(stats.veredictos).map(([k,v]) => {
-        const pct = Math.round(v/stats.total*100);
-        return `
-        <div class="flex items-center gap-3">
-            <span class="text-[9px] font-black text-slate-500 uppercase w-24 flex-shrink-0">${vLabels[k]}</span>
-            <div class="flex-1 h-4 bg-slate-100 rounded-full overflow-hidden">
-                <div class="h-full ${vColors[k]} rounded-full transition-all" style="width:${pct}%"></div>
-            </div>
-            <span class="text-xs font-black text-slate-600 w-12 text-right">${v} (${pct}%)</span>
-        </div>`;
-    }).join('');
-
-    // ── Evolução temporal ─────────────────────────────────────────────────────
-    const evolucaoChart = stats.evolucao.length > 1 ? `
-        <div class="glass-card p-8">
-            <h4 class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-6 flex items-center gap-2">
-                <i data-lucide="trending-up" class="w-4 h-4 text-blue-400"></i> Evolução Temporal (Média por Semana)
-            </h4>
-            <canvas id="dashEvolucaoChart" height="80"></canvas>
-        </div>` : '';
-
-    content.innerHTML = `
-        ${kpis}
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">${coordCards}</div>
-        ${evolucaoChart}
-        <div class="glass-card p-8">
-            <h4 class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-6 flex items-center gap-2">
-                <i data-lucide="trophy" class="w-4 h-4 text-amber-400"></i> Ranking de Vendedores
-            </h4>
-            <div class="space-y-3">${ranking}</div>
-        </div>
-        <div class="glass-card p-8">
-            <h4 class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-6 flex items-center gap-2">
-                <i data-lucide="user-check" class="w-4 h-4 text-violet-400"></i> Qualificação de Leads (SDR)
-            </h4>
-            <div class="space-y-4">${veredictosBars}</div>
-        </div>`;
-
-    lucide.createIcons();
-
-    // Render evolution chart
-    if (stats.evolucao.length > 1) {
-        if (dashChartEvolucao) dashChartEvolucao.destroy();
-        const ctx = document.getElementById('dashEvolucaoChart').getContext('2d');
-        dashChartEvolucao = new Chart(ctx, {
-            type: 'line',
-            data: {
-                labels: stats.evolucao.map(e => e.semana),
-                datasets: [{
-                    label: 'Média de Vendas',
-                    data: stats.evolucao.map(e => e.media),
-                    borderColor: '#2563eb', backgroundColor: 'rgba(37,99,235,0.08)',
-                    borderWidth: 2, pointRadius: 4, pointBackgroundColor: '#1e3a8a', tension: 0.3, fill: true
-                }]
-            },
-            options: {
-                scales: { y: { min: 0, max: 5, ticks: { stepSize: 1 } } },
-                plugins: { legend: { display: false } },
-                maintainAspectRatio: true
-            }
-        });
+    if (!nome) return;
+    content.innerHTML = '<div class="flex flex-col items-center py-16 text-slate-300"><div class="loader mb-4"></div><p class="font-bold text-xs uppercase tracking-widest animate-pulse">Carregando seu desempenho...</p></div>';
+    try {
+        const qs = 'vendedor=' + encodeURIComponent(nome) + '&periodo=' + periodo + '&coordenador=todos';
+        const res  = await fetch('/api/dashboard?' + qs);
+        const data = await res.json();
+        if (data.error) throw new Error(data.error);
+        renderVendedorDash(nome, data);
+    } catch(err) {
+        content.innerHTML = '<div class="text-center py-20 text-red-400 font-bold">' + err.message + '</div>';
     }
 }
+
+function renderVendedorDash(nome, obj) {
+    const reunioes = obj.reunioes; const stats = obj.stats;
+    const content = document.getElementById('dash-content');
+    if (!stats || !reunioes.length) {
+        content.innerHTML = '<div class="flex flex-col items-center py-20 text-slate-300"><i data-lucide="inbox" class="w-12 h-12 mb-3"></i><p class="font-bold text-sm">Nenhuma análise encontrada para ' + nome + '.</p></div>';
+        lucide.createIcons(); return;
+    }
+    const v = stats.ranking[0];
+    if (!v) return;
+    const sc = n => n >= 4 ? 'text-emerald-600' : n >= 3 ? 'text-blue-600' : 'text-red-500';
+    const bar = (label, val, color) => '<div><div class="flex justify-between text-[10px] font-black mb-1"><span class="text-slate-500 uppercase tracking-widest">' + label + '</span><span class="' + sc(val) + '">' + (val||'—') + ' / 5</span></div><div class="h-2.5 w-full bg-slate-100 rounded-full overflow-hidden"><div class="h-full ' + color + ' rounded-full" style="width:' + Math.round(((val||0)/5)*100) + '%"></div></div></div>';
+
+    const pilares = [v.avg_rapport, v.avg_produto, v.avg_apresentacao, v.avg_pre_fechamento, v.avg_fechamento];
+    const pilarLabels = ['Rapport','Produto','Apres.','Pré-F.','Fecha.'];
+    const maxVal = Math.max(...pilares); const minVal = Math.min(...pilares);
+    const maxLabel = pilarLabels[pilares.indexOf(maxVal)];
+    const minLabel = pilarLabels[pilares.indexOf(minVal)];
+
+    const vColors2 = {QUALIFICADO:'bg-emerald-500',PARCIALMENTE:'bg-yellow-400',MAL:'bg-red-500',FORA:'bg-purple-500',SEM:'bg-slate-300'};
+    const vLabels2 = {QUALIFICADO:'Qualificado',PARCIALMENTE:'Parcial',MAL:'Mal Qualif.',FORA:'Fora Portf.',SEM:'Sem dados'};
+
+    const evolRows = stats.evolucao.map(e =>
+        '<div class="flex justify-between items-center p-3 rounded-xl bg-slate-50 border border-slate-100"><span class="text-[10px] font-black text-slate-400">' + e.semana + '</span><div class="flex items-center gap-3"><span class="text-[9px] text-slate-400">' + e.total + ' reunião(ões)</span><span class="text-base font-black ' + sc(e.media) + '">' + e.media + '</span></div></div>'
+    ).join('');
+
+    const ultimas = reunioes.slice(0,5).map(r => {
+        const ck = r.analise_json && r.analise_json.checklist_fechamento ? r.analise_json.checklist_fechamento : {};
+        const ckOk = Object.values(ck).filter(Boolean).length;
+        const ckTot = Object.values(ck).length;
+        const pilarMini = [r.nota_rapport,r.nota_produto,r.nota_apresentacao,r.nota_pre_fechamento,r.nota_fechamento];
+        const pilarL = ['R','Pr','Ap','PF','F'];
+        return '<div class="p-5 rounded-2xl border border-slate-100 bg-white hover:shadow-sm transition-all"><div class="flex justify-between items-start mb-3"><div><p class="text-[9px] font-black text-slate-400 uppercase">' + new Date(r.created_at).toLocaleDateString('pt-BR') + '</p><p class="text-[11px] font-bold text-slate-600 mt-0.5">' + (r.produto||'Produto não identificado') + '</p></div><div class="text-3xl font-black ' + sc(r.media_final) + '">' + (r.media_final||'—') + '</div></div><div class="grid grid-cols-5 gap-1 mb-3">' + pilarMini.map((val,i) => '<div class="text-center p-1.5 rounded-lg ' + (val>=4?'bg-emerald-50':val>=3?'bg-blue-50':'bg-red-50') + '"><p class="text-[8px] text-slate-400 font-bold">' + pilarL[i] + '</p><p class="font-black text-xs ' + sc(val) + '">' + (val||'—') + '</p></div>').join('') + '</div><div class="flex items-center justify-between text-[10px]"><span class="font-medium text-slate-400">Checklist: <span class="font-black text-slate-600">' + ckOk + '/' + ckTot + '</span></span><span class="px-2 py-1 rounded-full font-black ' + (r.qual_veredicto&&r.qual_veredicto.includes('QUAL')?'bg-emerald-100 text-emerald-700':r.qual_veredicto&&r.qual_veredicto.includes('MAL')?'bg-red-100 text-red-700':'bg-yellow-100 text-yellow-700') + '">' + (r.qual_veredicto||'—') + '</span></div></div>';
+    }).join('');
+
+    content.innerHTML =
+        '<div class="glass-card p-8 bg-gradient-to-r from-violet-600 to-violet-800 text-white flex items-center gap-6">' +
+            '<div class="w-16 h-16 rounded-full bg-white/20 border-2 border-white/40 flex items-center justify-center text-2xl font-black">' + nome.charAt(0) + '</div>' +
+            '<div class="flex-1"><p class="text-violet-200 text-[10px] font-black uppercase tracking-widest mb-1">Seu Desempenho</p><h3 class="text-2xl font-black">' + nome + '</h3><p class="text-violet-300 text-xs font-bold">' + v.coordenador + ' · ' + v.total + ' reuniões analisadas</p></div>' +
+            '<div class="text-right"><p class="text-violet-200 text-[10px] font-black uppercase tracking-widest mb-1">Média Geral</p><p class="text-6xl font-black">' + v.media + '</p><p class="text-violet-300 text-xs">/ 5.0</p></div>' +
+        '</div>' +
+        '<div class="grid grid-cols-2 md:grid-cols-4 gap-4">' +
+            '<div class="glass-card p-6 text-center border-b-4 border-violet-500"><p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2">Reuniões</p><p class="text-4xl font-black text-violet-600">' + v.total + '</p></div>' +
+            '<div class="glass-card p-6 text-center border-b-4 border-emerald-400"><p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2">Melhor Pilar</p><p class="text-xs font-black ' + sc(maxVal) + '">' + maxLabel + '</p><p class="text-2xl font-black ' + sc(maxVal) + '">' + maxVal + '</p></div>' +
+            '<div class="glass-card p-6 text-center border-b-4 border-red-400"><p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2">Pilar Fraco</p><p class="text-xs font-black ' + sc(minVal) + '">' + minLabel + '</p><p class="text-2xl font-black ' + sc(minVal) + '">' + minVal + '</p></div>' +
+            '<div class="glass-card p-6 text-center border-b-4 border-blue-400"><p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2">SDR Médio</p><p class="text-4xl font-black text-blue-600">' + (stats.porCoordenador[v.coordenador]?stats.porCoordenador[v.coordenador].media_sdr:'—') + '</p><p class="text-[9px] text-slate-400 font-bold">/ 10</p></div>' +
+        '</div>' +
+        '<div class="glass-card p-8"><h4 class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-6">Desempenho por Pilar</h4><div class="space-y-4">' +
+            bar('Rapport',''+v.avg_rapport,'bg-pink-500') +
+            bar('Produto',''+v.avg_produto,'bg-sky-500') +
+            bar('Apresentação',''+v.avg_apresentacao,'bg-indigo-500') +
+            bar('Pré-Fechamento',''+v.avg_pre_fechamento,'bg-amber-500') +
+            bar('Fechamento',''+v.avg_fechamento,'bg-emerald-500') +
+        '</div></div>' +
+        '<div class="grid grid-cols-1 md:grid-cols-2 gap-6">' +
+            '<div class="glass-card p-8"><h4 class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Evolução por Semana</h4>' + (stats.evolucao.length > 0 ? '<div class="space-y-2">' + evolRows + '</div>' : '<p class="text-slate-300 text-sm font-bold text-center py-8">Sem dados suficientes</p>') + '</div>' +
+            '<div class="glass-card p-8"><h4 class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Qualificação de Leads (SDR)</h4><div class="space-y-3">' +
+                Object.entries(stats.veredictos).map(function(entry) {
+                    var k=entry[0], val=entry[1];
+                    var pct = stats.total ? Math.round(val/stats.total*100) : 0;
+                    return '<div class="flex items-center gap-3"><span class="text-[9px] font-black text-slate-500 uppercase w-20 flex-shrink-0">' + vLabels2[k] + '</span><div class="flex-1 h-3 bg-slate-100 rounded-full overflow-hidden"><div class="h-full ' + vColors2[k] + ' rounded-full" style="width:' + pct + '%"></div></div><span class="text-xs font-black text-slate-600 w-10 text-right">' + val + '</span></div>';
+                }).join('') +
+            '</div></div>' +
+        '</div>' +
+        '<div class="glass-card p-8"><h4 class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-6 flex items-center gap-2"><i data-lucide="clock" class="w-4 h-4 text-violet-400"></i> Últimas Análises</h4><div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">' + ultimas + '</div></div>';
+
+    lucide.createIcons();
+}
+
+// ── Dashboard Gestor ──────────────────────────────────────────────────────────
 
 // ── Save analysis after render ─────────────────────────────────────────────────
 async function saveAnalysis(coordenador, analise) {
@@ -947,26 +919,85 @@ analyzeBtn.addEventListener('click', handleAnalysis);
             </div>
 
             <!-- Filters -->
-            <div class="p-6 border-b border-slate-100 flex flex-wrap gap-4 items-center bg-slate-50">
-                <div class="flex items-center gap-2">
-                    <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Time:</span>
-                    <select id="dash-filter-coord" onchange="loadDashboard()" class="text-sm font-bold border border-slate-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 ring-blue-300">
-                        <option value="todos">Todos os times</option>
-                        <option value="Simone Rangel">Simone Rangel</option>
-                        <option value="Jonathan Dornelas">Jonathan Dornelas</option>
-                    </select>
+            <div class="p-4 border-b border-slate-100 bg-slate-50">
+                <!-- Mode Toggle -->
+                <div class="flex gap-2 mb-4">
+                    <button onclick="setDashMode('gestor')" id="dash-mode-gestor"
+                        class="flex-1 py-2.5 rounded-2xl text-[11px] font-black uppercase tracking-widest transition-all bg-[#002d72] text-white shadow-md">
+                        <i data-lucide="layout-dashboard" class="w-3 h-3 inline mr-1"></i> Visão Gestor
+                    </button>
+                    <button onclick="setDashMode('vendedor')" id="dash-mode-vendedor"
+                        class="flex-1 py-2.5 rounded-2xl text-[11px] font-black uppercase tracking-widest transition-all bg-slate-200 text-slate-500">
+                        <i data-lucide="user" class="w-3 h-3 inline mr-1"></i> Meu Desempenho
+                    </button>
                 </div>
-                <div class="flex items-center gap-2">
-                    <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Período:</span>
-                    <select id="dash-filter-periodo" onchange="loadDashboard()" class="text-sm font-bold border border-slate-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 ring-blue-300">
-                        <option value="30">Últimos 30 dias</option>
-                        <option value="7">Últimos 7 dias</option>
-                        <option value="90">Últimos 90 dias</option>
-                        <option value="todos">Todo o período</option>
-                    </select>
+
+                <!-- Gestor filters -->
+                <div id="dash-filters-gestor" class="flex flex-wrap gap-3 items-center">
+                    <div class="flex items-center gap-2">
+                        <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Time:</span>
+                        <select id="dash-filter-coord" onchange="onCoordChange()" class="text-sm font-bold border border-slate-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 ring-blue-300">
+                            <option value="todos">Todos os times</option>
+                            <option value="Simone Rangel">Simone Rangel</option>
+                            <option value="Jonathan Dornelas">Jonathan Dornelas</option>
+                        </select>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Vendedor:</span>
+                        <select id="dash-filter-vendedor" onchange="loadDashboard()" class="text-sm font-bold border border-slate-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 ring-blue-300">
+                            <option value="todos">Todos</option>
+                        </select>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Período:</span>
+                        <select id="dash-filter-periodo" onchange="loadDashboard()" class="text-sm font-bold border border-slate-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 ring-blue-300">
+                            <option value="30">Últimos 30 dias</option>
+                            <option value="7">Últimos 7 dias</option>
+                            <option value="90">Últimos 90 dias</option>
+                            <option value="todos">Todo o período</option>
+                        </select>
+                    </div>
+                    <div id="dash-loading" class="hidden flex items-center gap-2 text-blue-600 text-xs font-bold">
+                        <div class="loader" style="width:16px;height:16px;border-width:2px"></div> Carregando...
+                    </div>
                 </div>
-                <div id="dash-loading" class="hidden flex items-center gap-2 text-blue-600 text-xs font-bold">
-                    <div class="loader" style="width:16px;height:16px;border-width:2px"></div> Carregando...
+
+                <!-- Vendedor filters -->
+                <div id="dash-filters-vendedor" class="hidden flex flex-wrap gap-3 items-center">
+                    <div class="flex items-center gap-2">
+                        <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Eu sou:</span>
+                        <select id="dash-filter-eu" onchange="loadVendedorDash()" class="text-sm font-bold border border-slate-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 ring-blue-300">
+                            <option value="">— selecione seu nome —</option>
+                            <optgroup label="Time Jonathan Dornelas">
+                                <option>Antonio Gonçalves</option>
+                                <option>Bruno Matoso</option>
+                                <option>Caio Teixeira</option>
+                                <option>Charles Silva</option>
+                                <option>Emelin Sant'Ana</option>
+                                <option>Leandro Oliveira</option>
+                                <option>Matheus Rodrigues</option>
+                                <option>Yuri Nonno</option>
+                            </optgroup>
+                            <optgroup label="Time Simone Rangel">
+                                <option>Eduardo Santos</option>
+                                <option>Ícaro Nunes</option>
+                                <option>Letícia Macedo</option>
+                                <option>Lucas Cardoso</option>
+                                <option>Pablo Rodrigues</option>
+                                <option>Taffarel Ferreira</option>
+                                <option>Will Melo</option>
+                            </optgroup>
+                        </select>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Período:</span>
+                        <select id="dash-filter-periodo-vend" onchange="loadVendedorDash()" class="text-sm font-bold border border-slate-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 ring-blue-300">
+                            <option value="30">Últimos 30 dias</option>
+                            <option value="7">Últimos 7 dias</option>
+                            <option value="90">Últimos 90 dias</option>
+                            <option value="todos">Todo o período</option>
+                        </select>
+                    </div>
                 </div>
             </div>
 
