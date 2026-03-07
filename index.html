@@ -821,6 +821,156 @@ async function loadDashboard() {
     }
 }
 
+function renderDashboardData({ reunioes, stats }) {
+    const content = document.getElementById('dash-content');
+
+    if (!stats || reunioes.length === 0) {
+        content.innerHTML =
+            '<div class="flex flex-col items-center py-20 text-slate-300">' +
+                '<i data-lucide="inbox" class="w-12 h-12 mb-3"></i>' +
+                '<p class="font-bold text-sm">Nenhuma análise encontrada para este período.</p>' +
+                '<p class="text-xs mt-1">Faça análises e elas aparecerão aqui.</p>' +
+            '</div>';
+        lucide.createIcons();
+        return;
+    }
+
+    const sc   = n => n >= 4 ? 'text-emerald-600' : n >= 3 ? 'text-blue-600' : 'text-red-500';
+    const scBg = n => n >= 4 ? 'bg-emerald-50 border-emerald-200' : n >= 3 ? 'bg-blue-50 border-blue-200' : 'bg-red-50 border-red-200';
+
+    // KPIs
+    const kpis =
+        '<div class="grid grid-cols-2 md:grid-cols-4 gap-4">' +
+            '<div class="glass-card p-6 text-center border-b-4 border-blue-600">' +
+                '<p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2">Total de Reuniões</p>' +
+                '<p class="text-4xl font-black text-blue-700">' + stats.total + '</p>' +
+            '</div>' +
+            '<div class="glass-card p-6 text-center border-b-4 border-emerald-500">' +
+                '<p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2">Média Geral</p>' +
+                '<p class="text-4xl font-black ' + sc(stats.media_geral) + '">' + stats.media_geral + '</p>' +
+                '<p class="text-[9px] text-slate-400 font-bold">/ 5.0</p>' +
+            '</div>' +
+            '<div class="glass-card p-6 text-center border-b-4 border-violet-500">' +
+                '<p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2">Leads Qualificados</p>' +
+                '<p class="text-4xl font-black text-violet-600">' + stats.veredictos.QUALIFICADO + '</p>' +
+                '<p class="text-[9px] text-slate-400 font-bold">' + Math.round(stats.veredictos.QUALIFICADO / stats.total * 100) + '% do total</p>' +
+            '</div>' +
+            '<div class="glass-card p-6 text-center border-b-4 border-red-400">' +
+                '<p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2">Fora do Portfólio</p>' +
+                '<p class="text-4xl font-black text-red-500">' + stats.veredictos.FORA + '</p>' +
+                '<p class="text-[9px] text-slate-400 font-bold">reuniões perdidas</p>' +
+            '</div>' +
+        '</div>';
+
+    // Por coordenador
+    const coordCards = Object.entries(stats.porCoordenador).map(function(entry) {
+        const nome = entry[0]; const coData = entry[1];
+        const isSimone = nome.includes('Simone');
+        const border = isSimone ? 'border-blue-500' : 'border-violet-500';
+        const iconColor = isSimone ? 'text-blue-600' : 'text-violet-600';
+        const bgColor = isSimone ? 'bg-blue-100' : 'bg-violet-100';
+        return '<div class="glass-card p-8 border-t-4 ' + border + '">' +
+            '<div class="flex items-center gap-3 mb-6">' +
+                '<div class="w-10 h-10 rounded-full ' + bgColor + ' flex items-center justify-center">' +
+                    '<i data-lucide="user-circle" class="w-5 h-5 ' + iconColor + '"></i>' +
+                '</div>' +
+                '<div><p class="font-black text-sm text-slate-800">' + nome + '</p>' +
+                '<p class="text-[10px] text-slate-400 font-bold">' + coData.total + ' reuniões analisadas</p></div>' +
+            '</div>' +
+            '<div class="grid grid-cols-3 gap-3">' +
+                '<div class="text-center p-3 bg-slate-50 rounded-2xl"><p class="text-[8px] font-black text-slate-400 uppercase mb-1">Média Vendas</p><p class="text-2xl font-black ' + sc(coData.media_vendas) + '">' + (coData.media_vendas || '—') + '</p></div>' +
+                '<div class="text-center p-3 bg-slate-50 rounded-2xl"><p class="text-[8px] font-black text-slate-400 uppercase mb-1">Nota SDR</p><p class="text-2xl font-black ' + sc(coData.media_sdr / 2) + '">' + (coData.media_sdr || '—') + '</p></div>' +
+                '<div class="text-center p-3 bg-red-50 rounded-2xl"><p class="text-[8px] font-black text-red-400 uppercase mb-1">Mal Qualif.</p><p class="text-2xl font-black text-red-500">' + coData.mal_qualificados + '</p></div>' +
+            '</div>' +
+        '</div>';
+    }).join('');
+
+    // Ranking vendedores
+    const ranking = stats.ranking.map(function(v, i) {
+        const pilarLabels = ['Rapport','Produto','Apres.','Pré-F.','Fecha.'];
+        const pilarVals   = [v.avg_rapport, v.avg_produto, v.avg_apresentacao, v.avg_pre_fechamento, v.avg_fechamento];
+        const pilarCols   = pilarLabels.map(function(l, idx) {
+            const val = pilarVals[idx];
+            return '<div class="text-center"><p class="text-[8px] text-slate-400 font-bold">' + l + '</p><p class="font-black text-xs ' + sc(val) + '">' + (val || '—') + '</p></div>';
+        }).join('');
+        const medalColor = v.media >= 4 ? 'border-emerald-300' : v.media >= 3 ? 'border-blue-300' : 'border-red-300';
+        return '<div class="flex items-center gap-4 p-4 rounded-2xl border ' + scBg(v.media) + ' hover:shadow-sm transition-all">' +
+            '<div class="w-8 h-8 rounded-full bg-white border-2 ' + medalColor + ' flex items-center justify-center font-black text-sm text-slate-600">' + (i + 1) + '</div>' +
+            '<div class="flex-1"><p class="font-black text-sm text-slate-800">' + v.nome + '</p>' +
+            '<p class="text-[10px] text-slate-400 font-bold">' + v.coordenador + ' · ' + v.total + ' reuniões</p></div>' +
+            '<div class="grid grid-cols-5 gap-2 text-center hidden md:grid">' + pilarCols + '</div>' +
+            '<div class="text-3xl font-black ' + sc(v.media) + ' min-w-[50px] text-right">' + v.media + '</div>' +
+        '</div>';
+    }).join('');
+
+    // Veredictos SDR
+    const vColors = { QUALIFICADO: 'bg-emerald-500', PARCIALMENTE: 'bg-yellow-400', MAL: 'bg-red-500', FORA: 'bg-purple-500', SEM: 'bg-slate-300' };
+    const vLabels = { QUALIFICADO: 'Qualificado', PARCIALMENTE: 'Parcial', MAL: 'Mal Qualif.', FORA: 'Fora Portf.', SEM: 'Sem dados' };
+    const veredictosBars = Object.entries(stats.veredictos).map(function(entry) {
+        const k = entry[0]; const v = entry[1];
+        const pct = Math.round(v / stats.total * 100);
+        return '<div class="flex items-center gap-3">' +
+            '<span class="text-[9px] font-black text-slate-500 uppercase w-24 flex-shrink-0">' + (vLabels[k] || k) + '</span>' +
+            '<div class="flex-1 h-4 bg-slate-100 rounded-full overflow-hidden">' +
+                '<div class="h-full ' + (vColors[k] || 'bg-slate-300') + ' rounded-full" style="width:' + pct + '%"></div>' +
+            '</div>' +
+            '<span class="text-xs font-black text-slate-600 w-12 text-right">' + v + ' (' + pct + '%)</span>' +
+        '</div>';
+    }).join('');
+
+    // Evolução
+    const evolucaoChart = stats.evolucao.length > 1
+        ? '<div class="glass-card p-8">' +
+              '<h4 class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-6 flex items-center gap-2">' +
+                  '<i data-lucide="trending-up" class="w-4 h-4 text-blue-400"></i> Evolução Temporal (Média por Semana)' +
+              '</h4>' +
+              '<canvas id="dashEvolucaoChart" height="80"></canvas>' +
+          '</div>'
+        : '';
+
+    content.innerHTML =
+        kpis +
+        '<div class="grid grid-cols-1 md:grid-cols-2 gap-6">' + coordCards + '</div>' +
+        evolucaoChart +
+        '<div class="glass-card p-8">' +
+            '<h4 class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-6 flex items-center gap-2">' +
+                '<i data-lucide="trophy" class="w-4 h-4 text-amber-400"></i> Ranking de Vendedores' +
+            '</h4>' +
+            '<div class="space-y-3">' + ranking + '</div>' +
+        '</div>' +
+        '<div class="glass-card p-8">' +
+            '<h4 class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-6 flex items-center gap-2">' +
+                '<i data-lucide="user-check" class="w-4 h-4 text-violet-400"></i> Qualificação de Leads (SDR)' +
+            '</h4>' +
+            '<div class="space-y-4">' + veredictosBars + '</div>' +
+        '</div>';
+
+    lucide.createIcons();
+
+    if (stats.evolucao.length > 1) {
+        if (window.dashChartEvolucao) window.dashChartEvolucao.destroy();
+        const ctx = document.getElementById('dashEvolucaoChart').getContext('2d');
+        window.dashChartEvolucao = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: stats.evolucao.map(function(e) { return e.semana; }),
+                datasets: [{
+                    label: 'Média de Vendas',
+                    data: stats.evolucao.map(function(e) { return e.media; }),
+                    borderColor: '#2563eb', backgroundColor: 'rgba(37,99,235,0.08)',
+                    borderWidth: 2, pointRadius: 4, pointBackgroundColor: '#1e3a8a', tension: 0.3, fill: true
+                }]
+            },
+            options: {
+                scales: { y: { min: 0, max: 5, ticks: { stepSize: 1 } } },
+                plugins: { legend: { display: false } },
+                maintainAspectRatio: true
+            }
+        });
+    }
+}
+
+
 async function loadVendedorDash() {
     const nome    = document.getElementById('dash-filter-eu').value;
     const periodo = document.getElementById('dash-filter-periodo-vend').value;
