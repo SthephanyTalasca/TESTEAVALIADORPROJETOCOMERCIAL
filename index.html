@@ -913,8 +913,12 @@ function renderDashboardData({ reunioes, stats }) {
                 '<div class="w-10 h-10 rounded-full ' + bgColor + ' flex items-center justify-center">' +
                     '<i data-lucide="user-circle" class="w-5 h-5 ' + iconColor + '"></i>' +
                 '</div>' +
-                '<div><p class="font-black text-sm text-slate-800">' + nome + '</p>' +
-                '<p class="text-[10px] text-slate-400 font-bold">' + coData.total + ' reuniões analisadas</p></div>' +
+                '<div>' +
+                    '<p class="font-black text-sm text-slate-800">' + nome + '</p>' +
+                    '<button onclick="abrirAnalysesCoord(\'' + nome.replace(/'/g,"\\'") + '\')" class="text-[10px] text-blue-500 hover:text-blue-700 font-black underline underline-offset-2 transition-colors">' +
+                        coData.total + ' reuniões analisadas →' +
+                    '</button>' +
+                '</div>' +
             '</div>' +
             '<div class="grid grid-cols-3 gap-3">' +
                 '<div class="text-center p-3 bg-slate-50 rounded-2xl"><p class="text-[8px] font-black text-slate-400 uppercase mb-1">Média Vendas</p><p class="text-2xl font-black ' + sc(coData.media_vendas) + '">' + (coData.media_vendas || '—') + '</p></div>' +
@@ -2155,6 +2159,77 @@ function abrirModalInativos() {
     });
 }
 
+
+
+// ── Análises por coordenador ──────────────────────────────────────────────────
+async function abrirAnalysesCoord(coordenador) {
+    const old = document.getElementById('modal-analyses-list');
+    if (old) old.remove();
+
+    const modal = document.createElement('div');
+    modal.id = 'modal-analyses-list';
+    modal.className = 'fixed inset-0 z-[400] bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-4';
+    modal.innerHTML =
+        '<div class="bg-white rounded-[2rem] w-full max-w-lg shadow-2xl max-h-[85vh] flex flex-col">' +
+            '<div class="p-6 border-b border-slate-100 flex justify-between items-center flex-shrink-0">' +
+                '<div>' +
+                    '<p class="text-[9px] font-black text-blue-500 uppercase tracking-widest mb-1">Análises do time</p>' +
+                    '<h3 class="font-black text-slate-800 text-lg">' + coordenador + '</h3>' +
+                '</div>' +
+                '<button id="mal-close" class="bg-slate-100 hover:bg-slate-200 p-2 rounded-full"><i data-lucide="x" class="w-4 h-4 text-slate-500"></i></button>' +
+            '</div>' +
+            '<div id="mal-body" class="overflow-y-auto p-6 space-y-3">' +
+                '<div class="flex items-center justify-center py-10 text-slate-300"><div class="loader mr-3"></div><p class="text-xs font-black uppercase tracking-widest animate-pulse">Carregando...</p></div>' +
+            '</div>' +
+        '</div>';
+    document.body.appendChild(modal);
+    lucide.createIcons();
+    document.getElementById('mal-close').addEventListener('click', () => modal.remove());
+    modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+
+    try {
+        // Use current period filter from gestor view
+        const periodo  = document.getElementById('dash-filter-periodo')?.value || 'todos';
+        const inicio   = document.getElementById('dash-filter-inicio')?.value || '';
+        const fim      = document.getElementById('dash-filter-fim')?.value || '';
+        let qs = 'coordenador=' + encodeURIComponent(coordenador) + '&periodo=' + periodo + '&vendedor=todos';
+        if (inicio) qs += '&data_inicio=' + encodeURIComponent(inicio);
+        if (fim)    qs += '&data_fim='    + encodeURIComponent(fim);
+
+        const res  = await fetch('/api/dashboard?' + qs);
+        const data = await res.json();
+        const list = (data.reunioes || []);
+        const sc   = n => n >= 4 ? 'text-emerald-600' : n >= 3 ? 'text-blue-600' : 'text-red-500';
+        const scBg = n => n >= 4 ? 'bg-emerald-50 border-emerald-200' : n >= 3 ? 'bg-blue-50 border-blue-200' : 'bg-red-50 border-red-200';
+
+        if (!list.length) {
+            document.getElementById('mal-body').innerHTML = '<p class="text-center text-slate-300 text-sm py-8">Nenhuma análise encontrada.</p>';
+            return;
+        }
+
+        document.getElementById('mal-body').innerHTML = list.map(r =>
+            '<div class="flex items-center gap-3 p-4 rounded-2xl border cursor-pointer hover:shadow-md transition-all ' + scBg(r.media_final) + '" onclick="abrirAnaliseCompleta(\'' + r.id + '\')">' +
+                '<div class="w-11 h-11 rounded-full bg-white border-2 ' + (r.media_final >= 4 ? 'border-emerald-400' : r.media_final >= 3 ? 'border-blue-400' : 'border-red-400') + ' flex items-center justify-center font-black text-lg ' + sc(r.media_final) + ' flex-shrink-0">' + (r.media_final || '?') + '</div>' +
+                '<div class="flex-1 min-w-0">' +
+                    '<p class="font-black text-sm text-slate-800">' + (r.vendedor_nome || 'Não identificado') + '</p>' +
+                    '<p class="text-[10px] text-slate-400 font-bold">' + (r.produto || '—') + ' · ' + new Date(r.created_at).toLocaleDateString('pt-BR', {day:'2-digit',month:'short',year:'numeric'}) + '</p>' +
+                    '<p class="text-[9px] text-slate-400 mt-0.5">' + (r.qual_veredicto || '') + '</p>' +
+                '</div>' +
+                '<div class="flex flex-col items-end gap-1">' +
+                    '<div class="grid grid-cols-5 gap-0.5">' +
+                    ['nota_rapport','nota_produto','nota_apresentacao','nota_pre_fechamento','nota_fechamento'].map((k,i) =>
+                        '<div class="text-center"><p class="text-[6px] text-slate-400">'+['R','Pr','A','PF','F'][i]+'</p><p class="text-[9px] font-black '+sc(r[k])+'">'+( r[k]||'—')+'</p></div>'
+                    ).join('') +
+                    '</div>' +
+                    '<i data-lucide="chevron-right" class="w-4 h-4 text-slate-300 mt-1"></i>' +
+                '</div>' +
+            '</div>'
+        ).join('');
+        lucide.createIcons();
+    } catch(err) {
+        document.getElementById('mal-body').innerHTML = '<p class="text-center text-red-400 font-bold py-8">' + err.message + '</p>';
+    }
+}
 
 
 // ── Análises por vendedor (modal lista) ───────────────────────────────────────
